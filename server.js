@@ -18,7 +18,12 @@ app.use(cors());  // Permitir solicitudes CORS
 app.use(express.json());  // Parsear el cuerpo de las solicitudes JSON
 
 // Conexión a MongoDB
-mongoose.connect(process.env.MONGO_URI)
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 15000, // subimos a 15 segundos
+  bufferCommands: false,
+})
   .then(() => console.log('Conectado a MongoDB'))
   .catch(err => console.log('Error al conectar a MongoDB', err));
 
