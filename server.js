@@ -1,62 +1,99 @@
-const verifyToken = require('./middlewares/verifyToken');
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
+const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const dotenv = require('dotenv');
-const cors = require('cors');
 
-// Configuración de entorno
-dotenv.config();
 const app = express();
 
-// Middleware
+// Middlewares
 app.use(cors());
 app.use(express.json());
 
-// Conexión mejorada a MongoDB
-async function connectDB() {
-  try {
-    await mongoose.connect(process.env.MONGO_URI, {
-      serverSelectionTimeoutMS: 5000,
-      retryWrites: true,
-      w: 'majority'
-    });
-    console.log('✅ Conectado a MongoDB Atlas');
-  } catch (err) {
-    console.error('❌ Error de conexión a MongoDB:', err.message);
-    console.log('\n🔑 Consejos para solucionar:');
-    console.log('1. Verifica que tu IP esté en la whitelist de MongoDB Atlas');
-    console.log('2. Revisa que tu MONGO_URI sea correcta en el .env');
-    console.log('3. Asegúrate que el usuario y contraseña sean correctos');
-    console.log('4. Verifica que tu cluster en Atlas esté activo\n');
-    process.exit(1);
-  }
-}
+// Conexión a MongoDB
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log('✅ MongoDB conectado'))
+  .catch(err => console.error('❌ Error de MongoDB:', err));
 
 // Modelo de Usuario
 const User = mongoose.model('User', new mongoose.Schema({
   username: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
+  password: { type: String, required: true }
 }));
 
-// Configuración de rutas
-app.post('/register', async (req, res) => {
-  /* ... (mantén tu código existente) ... */
+// Rutas de autenticación
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 12);
+    const user = await User.create({ username, password: hashedPassword });
+    
+    const token = jwt.sign(
+      { id: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.status(201).json({
+      success: true,
+      token,
+      user: { id: user._id, username: user.username }
+    });
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      message: err.code === 11000 ? 'El usuario ya existe' : 'Error al registrar'
+    });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
+
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({
+        success: false,
+        message: 'Credenciales inválidas'
+      });
+    }
+
+    const token = jwt.sign(
+      { id: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      success: true,
+      token,
+      user: { id: user._id, username: user.username }
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: 'Error en el servidor'
+    });
+  }
+});
+
+// Ruta de prueba
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date() });
+});
+
+// Manejo de rutas no encontradas
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'Ruta no encontrada'
+  });
 });
 
 // Iniciar servidor
-async function start() {
-  await connectDB();
-  
-  const PORT = process.env.PORT || 5001;
-  app.listen(PORT, () => {
-    console.log(`🚀 Servidor en http://localhost:${PORT}`);
-    console.log('🔗 MongoDB Atlas conectado correctamente');
-  });
-}
-
-start().catch(err => {
-  console.error('🔥 Error fatal:', err);
-  process.exit(1);
+const PORT = process.env.PORT || 5001;
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor en http://localhost:${PORT}`);
 });
